@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Jump Higher! — WebGL (Three.js) Mini Game</title>
+  <style>
+    html,
+    body {
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    #ui {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      z-index: 10;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .pill {
+      background: rgba(0, 0, 0, .55);
+      color: #fff;
+      padding: 8px 12px;
+      border-radius: 999px;
+      font-weight: 600;
+      letter-spacing: .2px;
+    }
+
+    #help {
+      position: fixed;
+      bottom: 12px;
+      left: 12px;
+      color: #fff;
+      background: rgba(0, 0, 0, .4);
+      padding: 8px 10px;
+      border-radius: 8px;
+      font-size: 12px;
+    }
+
+    #overlay {
+      position: fixed;
+      inset: 0;
+      display: none;
+      place-items: center;
+      background: rgba(0, 0, 0, .6);
+      z-index: 20;
+    }
+
+    #card {
+      background: #0b0b0c;
+      color: #f2f4f8;
+      padding: 28px 24px;
+      border-radius: 16px;
+      min-width: 320px;
+      text-align: center;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, .6);
+    }
+
+    #card h1 {
+      margin: 0 0 6px;
+      font-size: 22px;
+    }
+
+    #card p {
+      margin: 6px 0;
+      opacity: .9;
+    }
+
+    #btns {
+      margin-top: 18px;
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+    }
+
+    button {
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-weight: 700;
+      border: none;
+      cursor: pointer;
+    }
+
+    button.primary {
+      background: #5b8cff;
+      color: #fff;
+    }
+
+    button.secondary {
+      background: #e7ebf3;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="ui" style="right: 12px; left: auto;display: flex; align-items: flex-start;">
+    <button id="btnLogin">Sign in to keep your score</button>
+    <div class="pill" id="score">Height: 0.0 m</div>
+    <div class="pill" id="best">Best: 0.0 m</div>
+    <div class="pill" id="avatarWrap" style="display: none;"><img id="avatarImg" src="https://placehold.co/15x15.png" alt="avatar image"
+        style="height: 15px;" /><span id="avatarSpan" style="padding-left: 6px;">avatar name</span></div>
+    <div class="pill" id="leaderboardWrap" style="border-radius: 9px;padding-right: 30px; margin-top: -12px;"></div>
+  </div>
+  <div id="help">W/A/S/D to move • Space to jump (≈5 m) • R to restart</div>
+
+  <div id="overlay">
+    <div id="card">
+      <h1>Game Over</h1>
+      <p id="finalScore">Final height: 0.0 m</p>
+      <p id="bestScore">Best height: 0.0 m</p>
+      <div id="btns">
+        <button class="primary" id="restartBtn">Restart (R)</button>
+        <button class="secondary" id="continueBtn" style="display: none;">Spectate</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Three.js CDN (no bundler needed) -->
+  <script src="https://unpkg.com/three@0.159.0/build/three.min.js"></script>
+
+  <script src="https://www.viverse.com/static-assets/viverse-sdk/1.3.2/index.umd.cjs"></script>
+  <script>
+    // ====================== VIVERSE SDK ======================
+    window.addEventListener('DOMContentLoaded', async () => {
+
+      // ==== init ====
+      const appID = "49mbdpaxte"
+      client = new globalThis.viverse.client({
+        clientId: appID,
+        domain: 'account.htcvive.com'
+      });
+      console.log('SDK initialized!')
+
+
+      // ==== const ====
+      // login button
+      const btnLogin = document.getElementById('btnLogin');
+      if (!btnLogin) return; // guard if element missing
+      // avatar
+      const avatarWrap = document.getElementById('avatarWrap');
+      const avatarImg = document.getElementById('avatarImg');
+      const avatarSpan = document.getElementById('avatarSpan');
+      // leaderboard
+      const leaderboardWrap = document.getElementById('leaderboardWrap');
+
+
+      // ==== function ====
+      // Check login status then display avatar image (reuse)
+      async function updateLoginDisplay() {
+        const auth = await client.checkAuth();
+        console.log(auth)
+        if (auth && auth.access_token) {
+          btnLogin.style.display = 'none';
+          avatarWrap.style.display = '';
+          const currentToken = auth.access_token;
+          const avatarClient = new globalThis.viverse.avatar({
+            baseURL: 'https://sdk-api.viverse.com/',
+            token: currentToken
+          });
+          const profile = await avatarClient.getProfile();
+          const avatarName = profile?.name || '(no name)';
+          const head = profile?.activeAvatar?.headIconUrl;
+          if (head) avatarImg.src = head;
+          if (avatarName) avatarSpan.textContent = avatarName;
+        } else {
+          btnLogin.style.display = '';
+          avatarWrap.style.display = 'none';
+        }
+        return auth;
+      }
+      // Init gameDashboard if login
+      async function initGameDashboardClient() {
+        const auth = await client.checkAuth();
+        if (auth && auth.access_token) {
+          globalThis.gameDashboardClient = new globalThis.viverse.gameDashboard({
+            baseURL: 'https://www.viveport.com/',
+            communityBaseURL: 'https://www.viverse.com/',
+            token: auth.access_token
+          });
+        } else {
+          // no init
+        }
+      }
+      // Upload gameDashboard score
+      window.uploadLeaderboardScore = async function (score) {
+        // Can upload multiple leaderboard scores at once
+        const scores = [
+          { name: "highScores", value: score.toFixed(1) }
+        ];
+        console.log(score.toFixed(1))
+        const uploadLeaderboard = await globalThis.gameDashboardClient.uploadLeaderboardScore(appID, scores)
+        console.log("uploadLeaderboard:")
+        console.log(uploadLeaderboard)
+      }
+      // Get gameDashboard scores
+      window.showLeaderboardScores = async function () {
+        // A valid leaderboardConfig example:
+        const leaderboardConfig = {
+          name: "highScores",  // string
+          range_start: 0,  // number, show number of users beyond user's rank
+          range_end: 8,  // number, show number of users below user's rank
+          region: "global",  // string, get by local/global
+          time_range: "alltime",
+          around_user: false
+        };
+        const leaderboard = await globalThis.gameDashboardClient.getLeaderboard(appID, leaderboardConfig);
+        console.log(leaderboard);
+        if (leaderboard && leaderboard.ranking) {
+          // clear list first
+          leaderboardWrap.innerHTML = "";
+          const ul = document.createElement("ol");
+          // loop through rankings
+          leaderboard.ranking.forEach(item => {
+            const li = document.createElement("li");
+            li.textContent = `${item.value} m: ${item.name}`;
+            ul.appendChild(li);
+          });
+          leaderboardWrap.appendChild(ul);
+        }
+        else {
+          leaderboardWrap.style.display = 'none';
+        }
+      }
+
+
+      // ==== event listener ====
+      // btnLogin click event
+      btnLogin.addEventListener('click', async (event) => {
+        try {
+          console.log('btnLogin click')
+          await client.loginWithWorlds();
+          console.log('login activated, it should be poped up a login panel.')
+          await updateLoginDisplay();
+        } catch (e) {
+          console.log('btnLogin click error:', e)
+        }
+      });
+
+
+      // ==== main process ====
+      let auth = await updateLoginDisplay();
+      await initGameDashboardClient();
+      await showLeaderboardScores();
+    });
+    // ====================== VIVERSE SDK ======================
+
+
+    // ======= Core state =======
+    let scene, camera, renderer, clock;
+    let player, playerCollider, playerHalfH = 0.9, avatar;
+    let stairLeft = 0;
+    const stairDir = new THREE.Vector3(1, 0, 0);
+    const recycleAnchor = new THREE.Vector3(0, 10, 0);
+    const keys = Object.create(null);
+    let velocity = new THREE.Vector3(0, 0, 0);
+    let isGrounded = false;
+    let currentGroundPlatform = null;
+    let currentHeight = 0;
+    let bestHeight = parseFloat(localStorage.getItem('jump_best') || '0') || 0;
+    let gameOver = false;
+
+    // ======= Orbit camera control =======
+    let camYaw = 0;
+    let camPitch = 15 * Math.PI / 180; // slight downward angle
+    let isMouseDown = false;
+    let lastMouseX = 0, lastMouseY = 0;
+    const orbitDist = 14;
+
+    // UI elements
+    const scoreEl = document.getElementById('score');
+    const bestEl = document.getElementById('best');
+    const overlay = document.getElementById('overlay');
+    const finalScoreEl = document.getElementById('finalScore');
+    const bestScoreEl = document.getElementById('bestScore');
+    const restartBtn = document.getElementById('restartBtn');
+    const continueBtn = document.getElementById('continueBtn');
+
+    bestEl.textContent = `Best: ${bestHeight.toFixed(1)} m`;
+
+    // ======= World setup =======
+    const GRAVITY = -30;     // m/s^2 (scaled)
+    const MOVE_ACC = 36;     // lateral acceleration
+    const MOVE_DAMP = 8;     // lateral damping
+    const JUMP_VELOCITY = Math.sqrt(-2 * GRAVITY * 5.0); // ~5 m jump
+    const MAX_SPEED = 10;    // clamp lateral speed
+
+    const WORLD_BOUNDS = 40; // x/z boundary for platforms
+    const PLATFORM_COUNT = 320;
+    const PLATFORM_SPACING_Y = 2.8; // vertical spacing
+    const PLATFORM_MIN_SIZE = 2.0;
+    const PLATFORM_MAX_SIZE = 6.0;
+
+    const platforms = [];
+    const tmpBoxPlayer = new THREE.Box3();
+    const tmpBoxPlatform = new THREE.Box3();
+    const tmpVec = new THREE.Vector3();
+
+    init();
+    animate();
+
+    function init() {
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x0f1320);
+
+      camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
+      camera.position.set(0, 6, 14);
+
+      renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.body.appendChild(renderer.domElement);
+
+      clock = new THREE.Clock();
+
+      // Lights
+      const hemi = new THREE.HemisphereLight(0xffffff, 0x223355, 0.7);
+      hemi.position.set(0, 50, 0);
+      scene.add(hemi);
+
+      const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+      dir.position.set(10, 20, 10);
+      dir.castShadow = false;
+      scene.add(dir);
+
+      // Player group + invisible collider + blocky avatar (Roblox-like)
+      player = new THREE.Group();
+      player.position.set(0, 2, 0);
+      scene.add(player);
+
+      const colliderGeo = new THREE.BoxGeometry(0.9, 1.8, 0.9);
+      const colliderMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.0 });
+      playerCollider = new THREE.Mesh(colliderGeo, colliderMat);
+      player.add(playerCollider);
+
+      avatar = createRobloxAvatar();
+      avatar.position.y = 0; // centered on collider
+      player.add(avatar);
+
+      // Ground (as a wide platform)
+      const ground = makePlatform(0, 0, 0, 24, 1, 24, 0x293241);
+      ground.userData.isGround = true;
+
+      // Floating platforms
+      seedPlatforms();
+
+      // Subtle background stars for depth
+      scene.add(makeStars());
+
+      // Events
+      window.addEventListener('resize', onResize);
+      window.addEventListener('keydown', onKeyDown, { passive: false });
+      window.addEventListener('keyup', onKeyUp);
+
+      restartBtn.addEventListener('click', restart);
+      continueBtn.addEventListener('click', () => overlay.style.display = 'none');
+    }
+
+    function makePlatform(x, y, z, sx, sy, sz, color) {
+      const geo = new THREE.BoxGeometry(sx, sy, sz);
+      const mat = new THREE.MeshStandardMaterial({ color: color ?? pickColor(), roughness: 0.9, metalness: 0.05 });
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(x, y, z);
+      // springy platform params (depress + bounce)
+      m.userData.isGround = false;
+      m.receiveShadow = false;
+      scene.add(m);
+      platforms.push(m);
+      return m;
+    }
+
+    function pickColor() {
+      const palette = [0x72efdd, 0x56cfe1, 0x4ea8de, 0x5e60ce, 0x64dfdf, 0x80ffdb, 0xade8f4, 0x90e0ef, 0x48bfe3, 0x5390d9];
+      return palette[(Math.random() * palette.length) | 0];
+    }
+
+    function createRobloxAvatar() {
+      const g = new THREE.Group();
+      const skin = new THREE.MeshStandardMaterial({ color: 0xffe0bd, roughness: 0.8, metalness: 0.05 });
+      const torsoMat = new THREE.MeshStandardMaterial({ color: 0x2b84ff, roughness: 0.85, metalness: 0.05 });
+      const legMat = new THREE.MeshStandardMaterial({ color: 0x1f3f78, roughness: 0.85, metalness: 0.05 });
+      const armMat = new THREE.MeshStandardMaterial({ color: 0xffc857, roughness: 0.85, metalness: 0.05 });
+
+      // Torso (center around y=0.2)
+      const torso = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.8, 0.5), torsoMat);
+      torso.position.set(0, 0.2, 0);
+      g.add(torso);
+
+      // Head
+      const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), skin);
+      head.position.set(0, 0.75, 0);
+      g.add(head);
+
+      // Legs
+      const legL = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.7, 0.4), legMat);
+      legL.position.set(-0.22, -0.55, 0);
+      g.add(legL);
+      const legR = legL.clone();
+      legR.position.x = 0.22;
+      g.add(legR);
+
+      // Arms
+      const armL = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.7, 0.35), armMat);
+      armL.position.set(-0.68, 0.2, 0);
+      g.add(armL);
+      const armR = armL.clone();
+      armR.position.x = 0.68;
+      g.add(armR);
+
+      // Simple eyes
+      const eyeMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 1.0 });
+      const eyeL = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.01), eyeMat);
+      const eyeR = eyeL.clone();
+      eyeL.position.set(-0.12, 0.83, 0.26);
+      eyeR.position.set(0.12, 0.83, 0.26);
+      g.add(eyeL, eyeR);
+
+      return g;
+    }
+
+    function seedPlatforms() {
+      // Remove all floating platforms (keep ground)
+      for (let i = platforms.length - 1; i >= 0; i--) {
+        if (!platforms[i].userData.isGround) {
+          const m = platforms[i];
+          scene.remove(m);
+          platforms.splice(i, 1);
+        }
+      }
+
+      let anchor = new THREE.Vector3(0, 2, 0);
+      let i = 0;
+      while (i < PLATFORM_COUNT) {
+        if (Math.random() < 0.35) {
+          // Stair cluster for easy chaining
+          const steps = 3 + ((Math.random() * 5) | 0); // 3–7
+          const ang = Math.random() * Math.PI * 2;
+          const run = 1.2 + Math.random() * 1.4; // horizontal step
+          for (let s = 0; s < steps && i < PLATFORM_COUNT; s++, i++) {
+            anchor.y += 0.9 + Math.random() * 0.6; // rise per step
+            anchor.x += Math.cos(ang) * run;
+            anchor.z += Math.sin(ang) * run;
+            const sx = THREE.MathUtils.lerp(PLATFORM_MAX_SIZE, PLATFORM_MIN_SIZE, i / PLATFORM_COUNT) * (0.65 + Math.random() * 0.25);
+            const sz = sx * (0.6 + Math.random() * 0.6);
+            makePlatform(anchor.x, anchor.y, anchor.z, sx * 0.8, 0.8, sz * 0.8);
+          }
+        } else {
+          // Solo platform with an optional neighbor to encourage jumps
+          anchor.y += 1.8 + Math.random() * 1.6;
+          anchor.x += (Math.random() - 0.5) * 6.0;
+          anchor.z += (Math.random() - 0.5) * 6.0;
+          const sx = THREE.MathUtils.lerp(PLATFORM_MAX_SIZE, PLATFORM_MIN_SIZE, i / PLATFORM_COUNT) * (0.7 + Math.random() * 0.4);
+          const sz = sx * (0.6 + Math.random() * 0.8);
+          makePlatform(anchor.x, anchor.y, anchor.z, sx, 0.8, sz);
+          i++;
+          if (Math.random() < 0.55 && i < PLATFORM_COUNT) {
+            const dx = (Math.random() - 0.5) * 6.0;
+            const dz = (Math.random() - 0.5) * 6.0;
+            makePlatform(anchor.x + dx, anchor.y + (Math.random() * 0.6 - 0.2), anchor.z + dz, sx * 0.85, 0.8, sz * 0.85);
+            i++;
+          }
+        }
+        anchor.x = THREE.MathUtils.clamp(anchor.x, -WORLD_BOUNDS * 0.9, WORLD_BOUNDS * 0.9);
+        anchor.z = THREE.MathUtils.clamp(anchor.z, -WORLD_BOUNDS * 0.9, WORLD_BOUNDS * 0.9);
+      }
+    }
+
+    function makeStars() {
+      const g = new THREE.BufferGeometry();
+      const N = 2000;
+      const positions = new Float32Array(N * 3);
+      for (let i = 0; i < N; i++) {
+        positions[i * 3 + 0] = (Math.random() - 0.5) * 600;
+        positions[i * 3 + 1] = Math.random() * 600;
+        positions[i * 3 + 2] = (Math.random() - 0.5) * 600;
+      }
+      g.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      const m = new THREE.PointsMaterial({ size: 0.8, color: 0xffffff, transparent: true, opacity: 0.6 });
+      return new THREE.Points(g, m);
+    }
+
+    // Platforms are solid; no per-frame updates needed.
+    function updatePlatforms(dt) { /* no-op */ }
+
+    function onResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    function onKeyDown(e) {
+      // Prevent page from scrolling on Space
+      if (e.code === 'Space') e.preventDefault();
+      keys[e.code] = true;
+
+      if (e.code === 'KeyR') restart();
+    }
+
+    function onKeyUp(e) { keys[e.code] = false; }
+
+    function restart() {
+      overlay.style.display = 'none';
+      gameOver = false;
+      velocity.set(0, 0, 0);
+      player.position.set(0, 2, 0);
+      currentHeight = 0;
+      stairLeft = 0;
+
+      // Regenerate a fresh reachable layout with stairs & neighbors
+      seedPlatforms();
+    }
+
+
+
+    renderer.domElement.addEventListener('mousedown', e => {
+      isMouseDown = true;
+      lastMouseX = e.clientX;
+      lastMouseY = e.clientY;
+    });
+    window.addEventListener('mouseup', () => isMouseDown = false);
+    window.addEventListener('mousemove', e => {
+      if (!isMouseDown) return;
+      const dx = e.clientX - lastMouseX;
+      const dy = e.clientY - lastMouseY;
+      lastMouseX = e.clientX;
+      lastMouseY = e.clientY;
+
+      camYaw -= dx * 0.005;
+      camPitch -= dy * 0.003;
+      camPitch = THREE.MathUtils.clamp(camPitch, 5 * Math.PI / 180, 75 * Math.PI / 180);
+    });
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const dt = Math.min(clock.getDelta(), 0.033);
+
+      if (!gameOver) update(dt);
+
+      // Orbit camera around player
+      const cosPitch = Math.cos(camPitch);
+      const sinPitch = Math.sin(camPitch);
+      const camX = player.position.x + Math.sin(camYaw) * orbitDist * cosPitch;
+      const camY = player.position.y + 5 + orbitDist * sinPitch;
+      const camZ = player.position.z + Math.cos(camYaw) * orbitDist * cosPitch;
+      camera.position.lerp(new THREE.Vector3(camX, camY, camZ), 0.15);
+      camera.lookAt(player.position.x, player.position.y + 1, player.position.z);
+
+      renderer.render(scene, camera);
+    }
+
+
+    function update(dt) {
+      // Update platform springs first
+      updatePlatforms(dt);
+
+      // === Lateral input (camera-relative) ===
+      let inputX = 0, inputZ = 0;
+      if (keys['KeyW']) inputZ -= 1;
+      if (keys['KeyS']) inputZ += 1;
+      if (keys['KeyA']) inputX -= 1;
+      if (keys['KeyD']) inputX += 1;
+      const len = Math.hypot(inputX, inputZ);
+      if (len > 0) { inputX /= len; inputZ /= len; }
+
+      // Convert input to world-space direction based on camera yaw
+      const forward = new THREE.Vector3(Math.sin(camYaw), 0, Math.cos(camYaw)); // away from camera
+      const right = new THREE.Vector3(forward.z, 0, -forward.x);
+      const moveDir = new THREE.Vector3();
+      moveDir.addScaledVector(forward, inputZ);
+      moveDir.addScaledVector(right, inputX);
+      moveDir.normalize();
+
+      // Move and rotate avatar
+      velocity.x += moveDir.x * MOVE_ACC * dt;
+      velocity.z += moveDir.z * MOVE_ACC * dt;
+
+      if (len > 0) {
+        // Avatar faces opposite of camera (always facing camera)
+        avatar.rotation.y = Math.atan2(-forward.x, -forward.z);
+      }
+
+
+
+      velocity.x -= velocity.x * MOVE_DAMP * dt;
+      velocity.z -= velocity.z * MOVE_DAMP * dt;
+
+      // clamp lateral speed
+      const lateralSpeed = Math.hypot(velocity.x, velocity.z);
+      if (lateralSpeed > MAX_SPEED) {
+        const s = MAX_SPEED / lateralSpeed;
+        velocity.x *= s; velocity.z *= s;
+      }
+      // If sliding without input, still face the travel direction
+      if (len === 0 && lateralSpeed > 0.1) {
+        avatar.rotation.y = Math.atan2(velocity.x, velocity.z);
+      }
+
+      // Gravity
+      velocity.y += GRAVITY * dt;
+
+      // Jump
+      if (keys['Space'] && isGrounded) {
+        velocity.y = JUMP_VELOCITY;
+        isGrounded = false;
+      }
+
+      // Integrate horizontal with side collisions (fully solid)
+      // X axis
+      const prevX = player.position.x;
+      player.position.x += velocity.x * dt;
+      scene.updateMatrixWorld(true);
+      tmpBoxPlayer.setFromObject(playerCollider);
+      for (let i = 0; i < platforms.length; i++) {
+        const p = platforms[i];
+        tmpBoxPlatform.setFromObject(p);
+        const yOverlap = (tmpBoxPlayer.max.y > tmpBoxPlatform.min.y) && (tmpBoxPlayer.min.y < tmpBoxPlatform.max.y);
+        const zOverlap = (tmpBoxPlayer.max.z > tmpBoxPlatform.min.z) && (tmpBoxPlayer.min.z < tmpBoxPlatform.max.z);
+        const xOverlap = (tmpBoxPlayer.max.x > tmpBoxPlatform.min.x) && (tmpBoxPlayer.min.x < tmpBoxPlatform.max.x);
+        if (yOverlap && zOverlap && xOverlap) {
+          player.position.x = prevX;
+          velocity.x = 0;
+          scene.updateMatrixWorld(true);
+          tmpBoxPlayer.setFromObject(playerCollider);
+          break;
+        }
+      }
+
+      // Z axis
+      const prevZ = player.position.z;
+      player.position.z += velocity.z * dt;
+      scene.updateMatrixWorld(true);
+      tmpBoxPlayer.setFromObject(playerCollider);
+      for (let i = 0; i < platforms.length; i++) {
+        const p = platforms[i];
+        tmpBoxPlatform.setFromObject(p);
+        const yOverlap = (tmpBoxPlayer.max.y > tmpBoxPlatform.min.y) && (tmpBoxPlayer.min.y < tmpBoxPlatform.max.y);
+        const xOverlap = (tmpBoxPlayer.max.x > tmpBoxPlatform.min.x) && (tmpBoxPlayer.min.x < tmpBoxPlatform.max.x);
+        const zOverlap = (tmpBoxPlayer.max.z > tmpBoxPlatform.min.z) && (tmpBoxPlayer.min.z < tmpBoxPlatform.max.z);
+        if (yOverlap && xOverlap && zOverlap) {
+          player.position.z = prevZ;
+          velocity.z = 0;
+          scene.updateMatrixWorld(true);
+          tmpBoxPlayer.setFromObject(playerCollider);
+          break;
+        }
+      }
+
+      // Vertical integration with platform collision
+      const prevY = player.position.y;
+      player.position.y += velocity.y * dt;
+
+      // Ceiling collision when ascending — platforms are fully solid
+      if (velocity.y > 0) {
+        scene.updateMatrixWorld(true);
+        tmpBoxPlayer.setFromObject(playerCollider);
+        for (let i = 0; i < platforms.length; i++) {
+          const p = platforms[i];
+          tmpBoxPlatform.setFromObject(p);
+          const platformBottom = tmpBoxPlatform.min.y;
+
+          // Horizontal overlap
+          const xOverlap = (tmpBoxPlayer.max.x > tmpBoxPlatform.min.x) && (tmpBoxPlayer.min.x < tmpBoxPlatform.max.x);
+          const zOverlap = (tmpBoxPlayer.max.z > tmpBoxPlatform.min.z) && (tmpBoxPlayer.min.z < tmpBoxPlatform.max.z);
+          if (!xOverlap || !zOverlap) continue;
+
+          // Was below bottom before, now top crossed into it
+          const prevTop = prevY + playerHalfH;
+          const nowTop = player.position.y + playerHalfH;
+          const wasBelow = prevTop <= platformBottom + 0.02;
+          const nowAboveOrTouching = nowTop >= platformBottom - 0.02;
+          if (wasBelow && nowAboveOrTouching) {
+            player.position.y = platformBottom - playerHalfH;
+            velocity.y = 0;
+            break;
+          }
+        }
+      }
+
+      // Check collisions only when descending
+      isGrounded = false;
+      currentGroundPlatform = null;
+      if (velocity.y <= 0) {
+        scene.updateMatrixWorld(true);
+        tmpBoxPlayer.setFromObject(playerCollider);
+        for (let i = 0; i < platforms.length; i++) {
+          const p = platforms[i];
+          tmpBoxPlatform.setFromObject(p);
+          const platformTop = tmpBoxPlatform.max.y;
+
+          // Horizontal (XZ) overlap test
+          const xOverlap = (tmpBoxPlayer.max.x > tmpBoxPlatform.min.x) && (tmpBoxPlayer.min.x < tmpBoxPlatform.max.x);
+          const zOverlap = (tmpBoxPlayer.max.z > tmpBoxPlatform.min.z) && (tmpBoxPlayer.min.z < tmpBoxPlatform.max.z);
+          if (!xOverlap || !zOverlap) continue;
+
+          // Was above top before, now crossed below or touching
+          const wasAbove = (prevY - playerHalfH) >= platformTop - 0.02;
+          const nowBelow = (player.position.y - playerHalfH) <= platformTop + 0.02;
+          if (wasAbove && nowBelow) {
+            // Snap to top and zero vertical velocity
+            player.position.y = platformTop + playerHalfH;
+            velocity.y = 0;
+            isGrounded = true;
+            currentGroundPlatform = p;
+
+            break; // stand on first hit only
+          }
+        }
+      }
+
+      // Keep inside loose world bounds (XZ)
+      player.position.x = THREE.MathUtils.clamp(player.position.x, -WORLD_BOUNDS, WORLD_BOUNDS);
+      player.position.z = THREE.MathUtils.clamp(player.position.z, -WORLD_BOUNDS, WORLD_BOUNDS);
+
+      // Recycle platforms below player to above horizon
+      const horizon = player.position.y + 40;
+      for (let i = 0; i < platforms.length; i++) {
+        const p = platforms[i];
+        if (p.userData.isGround) continue;
+        if (p.position.y < player.position.y - 30) {
+          // Occasionally start a short stair sequence
+          if (stairLeft <= 0 && Math.random() < 0.28) {
+            stairLeft = 3 + ((Math.random() * 4) | 0); // 3~6
+            const ang = Math.random() * Math.PI * 2;
+            stairDir.set(Math.cos(ang), 0, Math.sin(ang));
+            recycleAnchor.set(player.position.x, horizon, player.position.z);
+          }
+          if (stairLeft > 0) {
+            recycleAnchor.y += 1.0 + Math.random() * 0.6; // rise
+            recycleAnchor.x += stairDir.x * (1.2 + Math.random() * 1.2);
+            recycleAnchor.z += stairDir.z * (1.2 + Math.random() * 1.2);
+            p.position.set(recycleAnchor.x, recycleAnchor.y, recycleAnchor.z);
+            // reset spring baseline
+            p.userData.y0 = p.position.y;
+            p.userData.offset = 0;
+            p.userData.v = 0;
+            const scale = THREE.MathUtils.clamp(0.6 + (Math.random() * 0.3), 0.5, 0.9);
+            p.scale.set(scale, 1, scale);
+            stairLeft -= 1;
+          } else {
+            p.position.y = horizon + Math.random() * 20;
+            p.position.x = player.position.x + (Math.random() - 0.5) * 12;
+            p.position.z = player.position.z + (Math.random() - 0.5) * 12;
+            // reset spring baseline
+            p.userData.y0 = p.position.y;
+            p.userData.offset = 0;
+            p.userData.v = 0;
+            const scale = THREE.MathUtils.clamp(0.6 + (Math.random() * 0.6), 0.5, 1.0);
+            p.scale.set(scale, 1, scale);
+          }
+        }
+      }
+
+      // Scoring
+      currentHeight = Math.max(currentHeight, player.position.y);
+      scoreEl.textContent = `Height: ${Math.max(0, currentHeight).toFixed(1)} m`;
+
+      // Lose if you fall beneath the ground significantly
+      if (player.position.y < -20) {
+        endGame();
+      }
+    }
+
+    async function endGame() {
+      gameOver = true;
+      const final = Math.max(0, currentHeight);
+      finalScoreEl.textContent = `Final height: ${final.toFixed(1)} m`;
+      bestHeight = Math.max(bestHeight, final);
+      bestEl.textContent = `Best: ${bestHeight.toFixed(1)} m`;
+      bestScoreEl.textContent = `Best height: ${bestHeight.toFixed(1)} m`;
+      localStorage.setItem('jump_best', String(bestHeight));
+      overlay.style.display = 'grid';
+
+      // 🔹 Upload score to leaderboard (if user logged in)
+      try {
+        if (globalThis.gameDashboardClient) {
+          await uploadLeaderboardScore(final);
+          console.log(`Score ${final.toFixed(1)} uploaded to leaderboard.`);
+          await showLeaderboardScores();
+        } else {
+          console.warn('Skipped upload — user not logged in or client not initialized.');
+        }
+      } catch (err) {
+        console.error('Upload leaderboard failed:', err);
+      }
+    }
+  </script>
+</body>
+
+</html>
