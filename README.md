@@ -5,9 +5,11 @@ A 3D platform-jumping game built with Three.js and crafted entirely through a se
 
 ## 🎮 Overview
 
-Highest Wins! is a simple yet addictive 3D mini-game where players control a Roblox-style character to jump between floating platforms and reach the greatest height possible. The higher you climb, the higher your score — and your name could top the leaderboard!
+This project was co-created with ChatGPT, which generated the core code, physics, and design based on a sequence of developer prompts. 
 
-This project was co-created with ChatGPT, which generated the core code, physics, and design based on a sequence of developer prompts. It was then integrated with the VIVERSE platform using the [VIVERSE SDK](https://docs.viverse.com/developer-tools) for login, avatar, and leaderboard features.
+It was then `integrated with the VIVERSE Worlds` using the [VIVERSE SDK](https://docs.viverse.com/developer-tools) to include login, avatar, and leaderboard features. Utimately, the game was published on the VIVERSE Worlds platform.
+
+Play Highest Wins! online now: https://worlds.viverse.com/2ndfQgt
 
 
 ## 📸 Screenshots
@@ -21,11 +23,13 @@ Watch the gameplay demo: https://youtu.be/fZc4cgZk9-g
 
 ## 🚀 Quick Start
 
-Visit the game online: https://worlds.viverse.com/2ndfQgt
+Highest Wins! is a simple yet addictive 3D mini-game where players control a Roblox-style character to jump between floating platforms and reach the greatest height possible. The higher you climb, the higher your score — and your name could top the leaderboard!
+
+Simply visit [Highest Wins!](https://worlds.viverse.com/2ndfQgt) on VIVERSE Worlds.
 
 Or
 
-Clone or download the project.
+Clone or download the git project.
 
 Open index.html in your browser — no build steps required.
 
